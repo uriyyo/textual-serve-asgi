@@ -1,6 +1,6 @@
 [project]
 name = "textual-serve-asgi"
-version = "0.1.0"
+version = "0.2.0"
 description = "ASGI adapter for Textual Serve"
 authors = [
     { name = "Yurii Karabas", email = "1998uriyyo@gmail.com" },
@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 server = [
   "uvicorn[standard]>=0.40.0",
+  "click>=8.3.0",
 ]
 
 [dependency-groups]
@@ -41,6 +42,9 @@ dev = [
 
 [project.urls]
 Repository = "https://github.com/uriyyo/textual-serve-asgi"
+
+[project.scripts]
+textual-serve = "textual_serve_asgi.__main__:serve"
 
 [build-system]
 requires = ["hatchling"]

@@ -6,7 +6,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any
+from os import PathLike
+from pathlib import Path
+from typing import Any, cast
 
 import jinja2
 from aiohttp import WSMsgType
@@ -17,9 +19,10 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
-from textual_serve.app_service import AppService
 from textual_serve.server import Server as BaseServer
 from textual_serve.server import to_int
+
+from textual_serve_asgi.app_service import AppService
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +49,27 @@ class WSWrapper:
 
 
 class Server(BaseServer):
+    def __init__(  # noqa: PLR0913
+        self,
+        command: str,
+        host: str = "localhost",
+        port: int = 8000,
+        title: str | None = None,
+        public_url: str | None = None,
+        statics_path: str | PathLike[str] | None = None,
+        templates_path: str | PathLike[str] | None = None,
+    ) -> None:
+        package_root = Path(__file__).resolve().parent
+        super().__init__(
+            command=command,
+            host=host,
+            port=port,
+            title=title,
+            public_url=public_url,
+            statics_path=statics_path or package_root / "static",
+            templates_path=templates_path or package_root / "templates",
+        )
+
     @cached_property
     def _jinja_env(self) -> jinja2.Environment:
         return jinja2.Environment(
@@ -59,11 +83,11 @@ class Server(BaseServer):
 
     @asynccontextmanager
     async def _lifespan(self, app: Starlette) -> AsyncIterator[None]:
-        await self.on_startup(app)  # type: ignore[call-arg]
+        await cast(Any, self).on_startup(app)
         yield
-        await self.on_shutdown(app)  # type: ignore[call-arg]
+        await cast(Any, self).on_shutdown(app)
 
-    def _make_app(self) -> Starlette:  # type: ignore[return-type]
+    def _make_app(self) -> Starlette:  # ty: ignore[invalid-method-override]
         routes = [
             Route("/", self.handle_index, name="index"),
             WebSocketRoute("/ws", self.handle_websocket, name="websocket"),
@@ -113,7 +137,7 @@ class Server(BaseServer):
 
         return f"ws://{no_scheme}"
 
-    async def handle_index(self, request: Request) -> HTMLResponse:  # type: ignore[override]
+    async def handle_index(self, request: Request) -> HTMLResponse:  # ty: ignore[invalid-method-override]
         font_size = to_int(request.query_params.get("fontsize", "16"), 16)
 
         base_url = self._get_base_url(request)
@@ -136,7 +160,7 @@ class Server(BaseServer):
         html = template.render(context)
         return HTMLResponse(html)
 
-    async def handle_download(self, request: Request) -> Response:  # type: ignore[override]
+    async def handle_download(self, request: Request) -> Response:  # ty: ignore[invalid-method-override]
         key = request.path_params["key"]
 
         try:
@@ -163,11 +187,13 @@ class Server(BaseServer):
             headers={"Content-Disposition": content_disposition},
         )
 
-    async def handle_websocket(self, websocket: WebSocket) -> None:  # type: ignore[override]
+    async def handle_websocket(self, websocket: WebSocket) -> None:  # ty: ignore[invalid-method-override]
         await websocket.accept()
 
         width = to_int(websocket.query_params.get("width", "80"), 80)
         height = to_int(websocket.query_params.get("height", "24"), 24)
+        cell_width = to_int(websocket.query_params.get("cellWidth", "0"), 0)
+        cell_height = to_int(websocket.query_params.get("cellHeight", "0"), 0)
 
         app_service: AppService | None = None
         try:
@@ -179,8 +205,13 @@ class Server(BaseServer):
                 download_manager=self.download_manager,
                 debug=self.debug,
             )
-            await app_service.start(width, height)
-            await self._process_messages(WSWrapper(websocket), app_service)  # type: ignore[call-arg]
+            await app_service.start(
+                width,
+                height,
+                cell_width=cell_width,
+                cell_height=cell_height,
+            )
+            await cast(Any, self)._process_messages(WSWrapper(websocket), app_service)  # noqa: SLF001
         except asyncio.CancelledError:
             await websocket.close()
             raise
